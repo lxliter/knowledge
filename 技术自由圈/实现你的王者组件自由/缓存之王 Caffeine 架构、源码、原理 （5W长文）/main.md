@@ -1048,17 +1048,337 @@ LoadingCache<Key, Graph> graphs = Caffeine.newBuilder()
 maximumWeight与maximumSize不可以同时使用。<br>
 
 #### 基于时间（Time-based）
+```
+// Evict based on a fixed expiration policy
+// 基于固定的到期策略进行退出
+LoadingCache<Key, Graph> graphs = Caffeine.newBuilder()
+    .expireAfterAccess(5, TimeUnit.MINUTES)
+    .build(key -> createExpensiveGraph(key));
+LoadingCache<Key, Graph> graphs = Caffeine.newBuilder()
+    .expireAfterWrite(10, TimeUnit.MINUTES)
+    .build(key -> createExpensiveGraph(key));
+    
+// Evict based on a varying expiration policy
+// 基于不同的到期策略进行退出
+LoadingCache<Key, Graph> graphs = Caffeine.newBuilder()
+    .expireAfter(new Expiry<Key, Graph>() {
+      @Override
+      public long expireAfterCreate(Key key, Graph graph, long currentTime) {
+        // Use wall clock time, rather than nanotime, if from an external resource
+        long seconds = graph.creationDate().plusHours(5)
+            .minus(System.currentTimeMillis(), MILLIS)
+            .toEpochSecond();
+        return TimeUnit.SECONDS.toNanos(seconds);
+      }
+      
+      @Override
+      public long expireAfterUpdate(Key key, Graph graph, 
+          long currentTime, long currentDuration) {
+        return currentDuration;
+      }
+      
+      @Override
+      public long expireAfterRead(Key key, Graph graph,
+          long currentTime, long currentDuration) {
+        return currentDuration;
+      }
+    })
+    .build(key -> createExpensiveGraph(key));
+```
+Caffeine提供了三种定时驱逐策略：
+- expireAfterAccess(long, TimeUnit):在最后一次访问或者写入后开始计时，在指定的时间后过期。
+假如一直有请求访问该key，那么这个缓存将一直不会过期。
+- expireAfterWrite(long, TimeUnit): 在最后一次写入缓存后开始计时，在指定的时间后过期。
+- expireAfter(Expiry): 自定义策略，过期时间由Expiry实现独自计算。
 
+***缓存的删除策略使用的是惰性删除和定时删除***。这两个删除策略的时间复杂度都是O(1)。
+- 惰性删除
+- 定时删除
 
+测试定时驱逐不需要等到时间结束。
+我们可以使用Ticker接口和Caffeine.ticker(Ticker)方法在缓存生成器中指定时间源，而不必等待系统时钟。
+如：
 
+```
+FakeTicker ticker = new FakeTicker(); // Guava's testlib
+Cache<Key, Graph> cache = Caffeine.newBuilder()
+    .expireAfterWrite(10, TimeUnit.MINUTES)
+    .executor(Runnable::run)
+    .ticker(ticker::read)
+    .maximumSize(10)
+    .build();
+cache.put(key, graph);
+ticker.advance(30, TimeUnit.MINUTES)
+assertThat(cache.getIfPresent(key), is(nullValue());
+```
 
+#### 基于引用（reference-based）
+Java4种引用的级别由高到低依次为：强引用  >  软引用  >  弱引用  >  虚引用
+- 强引用
+- 软引用
+- 弱引用
+- 虚引用
 
+|引用类型	|被垃圾回收时间|用途|生存时间|
+|---|---|---|---|
+|强引用|从来不会|对象的一般状态	|JVM停止运行时终止|
+|软引用|在内存不足时|对象缓存	|内存不足时终止|
+|弱引用|在垃圾回收时|对象缓存	|gc运行后终止|
+|虚引用|在垃圾回收时|堆外内存	|虚引用的通知特性来管理的堆外内存|
 
+##### 1、强引用
+以前我们使用的大部分引用实际上都是强引用，这是使用最普遍的引用。
+如果一个对象具有强引用，那就类似于必不可少的生活用品，垃圾回收器绝不会回收它。
+当内存空间不足，Java虚拟机宁愿抛出OutOfMemoryError错误，
+使程序异常终止，也不会靠随意回收具有强引用的对象来解决内存不足问题。 
+如:
+```
+String str = "abc";
+List<String> list = new Arraylist<String>();
+list.add(str)
+在list集合里的数据不会释放，即使内存不足也不会
+```
 
+在ArrayList类中定义了一个私有的变量elementData数组，在调用方法清空数组时可以看到为每个数组内容赋值为null。
+不同于elementData=null，强引用仍然存在，避免在后续调用 add()等方法添加元素时进行重新的内存分配。
+使用如clear()方法中释放内存的方法对数组中存放的引用类型特别适用，这样就可以及时释放内存。
 
+##### 2、软引用（SoftReference）
+特色：
+- 内存溢出之前进行回收，GC时内存不足时回收，如果内存足够就不回收
+- 使用场景：***在内存足够的情况下进行缓存，提升速度，内存不足时JVM自动回收***
 
+> 内存溢出之前进行回收，GC时内存不足时回收，如果内存足够就不回收，使用场景：在内存足够的情况下进行缓存，提升速度，内部不足时JVM自动回收
 
+如果一个对象只具有软引用，那就类似于可有可无的生活用品。<br>
+如果内存空间足够，垃圾回收器就不会回收它，如果内存空间不足了，就会回收这些对象的内存。<br>
+只要垃圾回收器没有回收它，该对象就可以被程序使用。软引用可用来实现内存敏感的高速缓存。<br>
+- 软引用可用来实现内存敏感的高速缓存
 
+软引用可以和一个引用队列（ReferenceQueue）联合使用，
+如果软引用所引用的对象被垃圾回收，JAVA虚拟机就会把这个软引用加入到与之关联的引用队列中。 如：
+
+```java
+public class Test {  
+    public static void main(String[] args){  
+        System.out.println("开始");            
+        A a = new A();            
+        SoftReference<A> sr = new SoftReference<A>(a);  
+        a = null;  
+        if(sr!=null){  
+            a = sr.get();  
+        }  
+        else{  
+            a = new A();  
+            sr = new SoftReference<A>(a);  
+        }            
+        System.out.println("结束");     
+    }       
+
+}  
+
+class A{  
+    int[] a ;  
+    public A(){  
+        a = new int[100000000];  
+    }  
+}  
+```
+当内存足够大时可以把数组存入软引用，
+取数据时就可从内存里取数据，提高运行效率
+
+##### 3．弱引用（WeakReference）
+特色：
+- 每次GC时回收，无论内存是否足够
+- 使用场景：a.ThreadLocalMap防止内存泄漏  b.监控对象是否将要被回收
+
+如果一个对象只具有弱引用，那就类似于可有可无的生活用品。<br>
+弱引用与软引用的区别在于：只具有弱引用的对象拥有更短暂的生命周期。
+在垃圾回收器线程扫描它所管辖的内存区域的过程中，一旦发现了只具有弱引用的对象，不管当前内存空间足够与否，都会回收它的内存。
+不过，由于垃圾回收器是一个优先级很低的线程， 因此不一定会很快发现那些只具有弱引用的对象。<br>
+弱引用可以和一个引用队列（ReferenceQueue）联合使用，如果弱引用所引用的对象被垃圾回收，Java虚拟机就会把这个弱引用加入到与之关联的引用队列中。 如：
+
+```
+Object c = new Car(); //只要c还指向car object, car object就不会被回收
+WeakReference<Car> weakCar = new WeakReference(Car)(car);
+```
+当要获得weak reference引用的object时, 首先需要判断它是否已经被回收:
+```
+weakCar.get();
+```
+如果此方法为空, 那么说明weakCar指向的对象已经被回收了.
+
+> 如果这个对象是偶尔的使用，并且希望在使用时随时就能获取到，但又不想影响此对象的垃圾收集，那么你应该用 Weak Reference 来记住此对象。
+
+当你想引用一个对象，但是这个对象有自己的生命周期，你不想介入这个对象的生命周期，这时候你就是用弱引用。
+
+> 这个引用不会在对象的垃圾回收判断中产生任何附加的影响。
+
+##### 4．虚引用（PhantomReference）
+“虚引用”顾名思义，就是形同虚设，与其他几种引用都不同，虚引用并不会决定对象的生命周期。<br>
+如果一个对象仅持有虚引用，那么它就和没有任何引用一样，在任何时候都可能被垃圾回收。<br>
+虚引用主要用来跟踪对象被垃圾回收的活动。<br>
+虚引用与软引用和弱引用的一个区别在于：虚引用必须和引用队列（ReferenceQueue）联合使用。<br>
+当垃圾回收器准备回收一个对象时，如果发现它还有虚引用，就会在回收对象的内存之前，把这个虚引用加入到与之关联的引用队列中。<br>
+程序可以通过判断引用队列中是否已经加入了虚引用，来了解被引用的对象是否将要被垃圾回收。
+程序如果发现某个虚引用已经被加入到引用队列，那么就可以在所引用的对象的内存被回收之前采取必要的行动。<br>
+特别注意，在实际程序设计中一般很少使用弱引用与虚引用，使用软引用的情况较多，这是因为软引用可以加速JVM对垃圾内存的回收速度，
+可以维护系统的运行安全，防止内存溢出（OutOfMemory）等问题的产生。<br>
+
+- 在实际程序设计中一般很少使用弱引用与虚引用，使用软引用的情况较多
+- 这是因为软引用可以加速JVM对垃圾内存的回收速度
+- 可以维护系统的运行安全，防止内存溢出（OutOfMemory）
+
+###### byteBuffer回收对外内存的流程
+两种使用堆外内存的方法，一种是依靠unsafe对象，另一种是NIO中的ByteBuffer，直接使用unsafe对象来操作内存，
+对于一般开发者来说难度很大，并且如果内存管理不当，容易造成内存泄漏。所以不推荐。
+
+- 依靠unsafe对象
+- NIO中的ByteBuffer
+
+推荐使用的是ByteBuffer来操作堆外内存。<br>
+在上面的ByteBuffer如何触发堆外内存的回收呢？是通过虚引用的关联线程是实现的。<br>
+
+当byteBuffer被回收后，在进行GC垃圾回收的时候，***发现虚引用对象Cleaner是PhantomReference类型的对象***，并且被该对象引用的对象（ByteBuffer对象）已经被回收了
+那么他就将将这个对象放入到（ReferenceQueue）队列中<br>
+JVM中会有一个优先级很低的线程会去将该队列中的虚引用对象取出来，然后回调clean（）方法<br>
+在clean（）方法里做的工作其实就是根据内存地址去释放这块内存（内部还是通过unsafe对象去释放的内存）。<br>
+
+![img.png](imgs/bytebuffer_weak_reference.png)
+
+可以看到被虚引用引用的对象其实就是这个byteBuffer对象。<br>
+所以说需要重点关注的是这个byteBuffer对象被回收了以后会触发什么操作。<br>
+
+![img.png](imgs/collect_heap_outside_bytebuffer.png)
+
+***缓存的驱逐配置成基于垃圾回收器***
+
+```
+// Evict when neither the key nor value are strongly reachable
+// 当key和value都没有引用时驱逐缓存
+LoadingCache<Key, Graph> graphs = Caffeine.newBuilder()
+    .weakKeys()
+    .weakValues()
+    .build(key -> createExpensiveGraph(key));
+
+// Evict when the garbage collector needs to free memory
+// 当垃圾收集器需要释放内存时驱逐
+LoadingCache<Key, Graph> graphs = Caffeine.newBuilder()
+    .softValues()
+    .build(key -> createExpensiveGraph(key));
+```
+
+我们可以将缓存的驱逐配置成基于垃圾回收器。
+为此，我们可以将key 和 value 配置为弱引用或只将值配置成软引用。
+
+注意：AsyncLoadingCache不支持弱引用和软引用。<br>
+Caffeine.weakKeys() 使用弱引用存储key。如果没有其他地方对该key有强引用，那么该缓存就会被垃圾回收器回收。
+由于垃圾回收器只依赖于身份(identity)相等，因此这会导致整个缓存使用身份 (==) 相等来比较 key，而不是使用 equals()。<br>
+Caffeine.weakValues() 使用弱引用存储value。如果没有其他地方对该value有强引用，那么该缓存就会被垃圾回收器回收。
+由于垃圾回收器只依赖于身份(identity)相等，因此这会导致整个缓存使用身份 (==) 相等来比较 key，而不是使用 equals()。<br>
+Caffeine.softValues() 使用软引用存储value。当内存满了过后，***软引用的对象以将使用最近最少使用(least-recently-used ) 的方式进行垃圾回收***。
+由于使用软引用是需要等到内存满了才进行回收，所以我们通常建议给缓存配置一个使用内存的最大值。 softValues() 将使用身份相等(identity) (==) 而不是equals() 来比较值。
+注意：Caffeine.weakValues()和Caffeine.softValues()不可以一起使用。
+
+### Removal移除特性
+概念：
+- 驱逐（eviction）：由于满足了某种驱逐策略，后台自动进行的删除操作
+- 无效（invalidation）：表示由调用方手动删除缓存
+- 移除（removal）：监听驱逐或无效操作的监听器
+
+> 驱逐 & 无效 & 移除
+
+#### 手动删除缓存：
+在任何时候，您都可以明确地使缓存无效，而不用等待缓存被驱逐。
+```
+// individual key
+cache.invalidate(key)
+// bulk keys
+cache.invalidateAll(keys)
+// all keys
+cache.invalidateAll()
+```
+
+Removal 监听器：
+```
+Cache<Key, Graph> graphs = Caffeine.newBuilder()
+    .removalListener((Key key, Graph graph, RemovalCause cause) ->
+        System.out.printf("Key %s was removed (%s)%n", key, cause))
+    .build();
+```
+
+您可以通过Caffeine.removalListener(RemovalListener) 为缓存指定一个删除侦听器，以便在删除数据时执行某些操作。 
+RemovalListener可以获取到key、value和RemovalCause（删除的原因）。
+
+删除侦听器的里面的操作是使用Executor来异步执行的。默认执行程序是ForkJoinPool.commonPool()，
+可以通过Caffeine.executor(Executor)覆盖。
+当操作必须与删除同步执行时，请改为使用CacheWrite，CacheWrite将在下面说明。
+
+注意：由RemovalListener抛出的任何异常都会被记录（使用Logger）并不会抛出。
+
+### 刷新（Refresh）
+```
+LoadingCache<Key, Graph> graphs = Caffeine.newBuilder()
+    .maximumSize(10_000)
+    // 指定在创建缓存或者最近一次更新缓存后经过固定的时间间隔，刷新缓存
+    .refreshAfterWrite(1, TimeUnit.MINUTES)
+    .build(key -> createExpensiveGraph(key));
+```
+
+刷新和驱逐是不一样的。刷新的是通过LoadingCache.refresh(key)方法来指定，
+并通过调用CacheLoader.reload方法来执行，刷新key会异步地为这个key加载新的value，
+并返回旧的值（如果有的话）。驱逐会阻塞查询操作直到驱逐作完成才会进行其他操作。
+
+与expireAfterWrite不同的是，refreshAfterWrite将在查询数据的时候判断该数据是不是符合查询条件，
+如果符合条件该缓存就会去执行刷新操作。例如，您可以在同一个缓存中同时指定refreshAfterWrite和expireAfterWrite，
+只有当数据具备刷新条件的时候才会去刷新数据，不会盲目去执行刷新操作。如果数据在刷新后就一直没有被再次查询，那么该数据也会过期。
+刷新操作是使用Executor异步执行的。默认执行程序是ForkJoinPool.commonPool()，可以通过Caffeine.executor(Executor)覆盖。
+如果刷新时引发异常，则使用log记录日志，并不会抛出。
+
+#### Writer直接写（write-through ）
+```
+LoadingCache<Key, Graph> graphs = Caffeine.newBuilder()
+  .writer(new CacheWriter<Key, Graph>() {
+    @Override public void write(Key key, Graph graph) {
+      // write to storage or secondary cache
+    }
+    @Override public void delete(Key key, Graph graph, RemovalCause cause) {
+      // delete from storage or secondary cache
+    }
+  })
+  .build(key -> createExpensiveGraph(key));
+```
+
+CacheWriter允许缓存充当一个底层资源的代理，当与CacheLoader结合使用时，
+所有对缓存的读写操作都可以通过Writer进行传递。
+Writer可以把操作缓存和操作外部资源扩展成一个同步的原子性操作。
+并且在缓存写入完成之前，它将会阻塞后续的更新缓存操作，但是读取（get）将直接返回原有的值。
+如果写入程序失败，那么原有的key和value的映射将保持不变，如果出现异常将直接抛给调用者。<br>
+
+CacheWriter可以同步的监听到缓存的创建、变更和删除操作。
+加载（例如，LoadingCache.get）、重新加载（例如，LoadingCache.refresh）和计算（例如Map.computeIfPresent）的操作不被CacheWriter监听到。
+注意：CacheWriter不能与weakKeys或AsyncLoadingCache结合使用。<br>
+
+#### 写模式（Write Modes）
+CacheWriter可以用来实现一个直接写（write-through ）或回写（write-back ）缓存的操作。
+write-through式缓存中，写操作是一个同步的过程，只有写成功了才会去更新缓存。这避免了同时去更新资源和缓存的条件竞争。
+write-back式缓存中，对外部资源的操作是在缓存更新后异步执行的。
+这样可以提高写入的吞吐量，避免数据不一致的风险，比如如果写入失败，则在缓存中保留无效的状态。
+这种方法可能有助于延迟写操作，直到指定的时间，限制写速率或批写操作。
+通过对write-back进行扩展，我们可以实现以下特性：
+- 批处理和合并操作
+- 延迟操作并到一个特定的时间执行
+- 如果超过阈值大小，则在定期刷新之前执行批处理
+- 如果操作尚未刷新，则从写入后缓冲器（write-behind）加载
+- 根据外部资源的特点，处理重审，速率限制和并发
+- 可以参考一个简单的例子，使用RxJava实现。
+
+#### 分层（Layering）
+CacheWriter可能用来集成多个缓存进而实现多级缓存。
+多级缓存的加载和写入可以使用系统外部高速缓存。
+这允许缓存使用一个小并且快速的缓存去调用一个大的并且速度相对慢一点的缓存。典型的off-heap、file-based和remote 缓存。
+受害者缓存（Victim Cache）是一个多级缓存的变体，其中被删除的数据被写入二级缓存。
+这个delete(K, V, RemovalCause) 方法允许检查为什么该数据被删除，并作出相应的操作。
 
 
 

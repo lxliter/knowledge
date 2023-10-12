@@ -1210,7 +1210,7 @@ go build 编译命令源码文件，则会在该命令的执行目录中生成�
 编译后，得到 exe 文件。<br>
 目录在哪儿呢？ go build 后面不追加目录路径的话，它就把当前目录作为代码包并进行编译<br>
 ```bash
-go build -o bin/hello.exe  hello.go
+Go build -o bin/hello.exe  hello.Go
 ```
 
 > 详解： go build 究竟干了些什么呢？

@@ -297,11 +297,27 @@
 - I'm Robbie,Robbie Stewart.
 - I'm Alexandra Pappas.
 - How do you do?
-- Alex
+- Alexandra,let me introduce you.
+- This is my wife,Marilyn.
+- Richard showed me your photo.
+- How do you do?
+- Oh yes.Richard told us all about you.
+- It's nice to meet you.
+- And this is my brother,Ellen Stewart.
+- How do you do?
+- And my father, Dr.Philip Stewart.
+- Nice to meet you,Alexandra.
+- And you've met Robbie.
+- Yes. And you must be Susan.Hi.Hi.
+- It was nice meeting you all.
 
+### The Blind Date
 
-
-
+#### ACT I
+Excuse me. Can you help me?
+Sure. What do you want?
+Where is 83 Wooster Street?
+That's easy.Walk to the corner.
 
 
 

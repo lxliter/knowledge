@@ -217,10 +217,10 @@ jdbc_password=123456
         <resources>
             <resource>
                 <!-- 
-                    资源文件位置src/main/resources/,这下面的资源文件的${}会全部被替换成filter中的标签内容。
+                    资源文件位置src/hello_go/resources/,这下面的资源文件的${}会全部被替换成filter中的标签内容。
                     directory指定的value会作为classes的资源跟目录，
-                    比如指定:src/main/resources/，则classes下会出现jdbc等包，
-                    若指定:src/main/resources/jdbc/，则classes下直接出现jdbc包下的文件，不会额外出现jdbc等其他包结构。因为他把jdbc作为了根目录
+                    比如指定:src/hello_go/resources/，则classes下会出现jdbc等包，
+                    若指定:src/hello_go/resources/jdbc/，则classes下直接出现jdbc包下的文件，不会额外出现jdbc等其他包结构。因为他把jdbc作为了根目录
                 -->
                 <directory>src/main/resources/</directory>
                 <!-- 在某个resource中如果设置filtering为true，将会根据输入参数动态修改相关内容。 -->
@@ -229,10 +229,10 @@ jdbc_password=123456
                 <excludes>
                     <!--
                         exclude可以排除指定文件，支持通配符 ,匹配项不会生成到classes目录下，路径是以directory开始的
-                        在这里就是directory（src/main/resources/）/multiEnv/filter-*-env.properties
+                        在这里就是directory（src/hello_go/resources/）/multiEnv/filter-*-env.properties
                     -->
                     <exclude>multiEnv/filter-*-env.properties</exclude>
-                    <!-- **/*.xml 代表 directory(src/main/resources/)目录以及所有子目录的xml文件-->
+                    <!-- **/*.xml 代表 directory(src/hello_go/resources/)目录以及所有子目录的xml文件-->
                     <!-- 
                     <exclude>**/*.xml</exclude>
                     <exclude>**/*.properties</exclude> 

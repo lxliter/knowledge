@@ -100,7 +100,7 @@ mvn clean package
 ```java
 public class AgentTest {
     public static void main(String[] args) {
-        System.out.println("main project start");
+        System.out.println("hello_go project start");
     }
 }
 ```

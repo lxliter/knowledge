@@ -194,7 +194,7 @@ server.port=8899
 server.servlet.context-path=/sharding-jdbc
 
 # 允许一个实体映射多个表
-# spring.main.allow-bean-definition-overriding=true
+# spring.hello_go.allow-bean-definition-overriding=true
 # 数据源名称，多数据源以逗号分隔
 spring.shardingsphere.datasource.names=ds1
 # 数据库连接池类名称
